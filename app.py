@@ -15,37 +15,39 @@ st.set_page_config(
 )
 
 st.markdown("""
-    <style>
-    .main { background-color: #F3EEE1; }
-    .metric-card {
-        background-color: #FBF8F0;
-        padding: 18px;
-        border-radius: 8px;
-        border: 1px solid #C9BE9C;
-    }
-    div[data-testid="stMetric"] {
-        background-color: #FBF8F0;
-        border: 1px solid #C9BE9C;
-        border-radius: 8px;
-        padding: 14px 16px;
-    }
-    .rec-card {
-        background-color: #FBF8F0;
-        border: 1px solid #C9BE9C;
-        border-left: 5px solid #C97A2B;
-        border-radius: 3px;
-        padding: 16px 18px;
-        margin-bottom: 14px;
-    }
-    .rec-card h4 { margin-bottom: 4px; color: #1D3620; }
-    .rec-card .impact { font-family: monospace; font-size: 12.5px; color: #2F5233; font-weight: 600; margin-top: 8px; }
-    .banner-box {
-        background: linear-gradient(135deg, #2F5233 0%, #1D3620 100%);
-        color: #F3EEE1; border-radius: 8px; padding: 20px 22px; margin-bottom: 10px;
-    }
-    .banner-box b { color: #fff; }
-    </style>
-    """, unsafe_allow_html=True)
+<style>
+
+/* Metric card */
+div[data-testid="stMetric"]{
+    background:#FBF8F0;
+    border:1px solid #C9BE9C;
+    border-radius:10px;
+    padding:18px;
+    box-shadow:0 2px 8px rgba(0,0,0,0.08);
+}
+
+/* Metric label */
+div[data-testid="stMetricLabel"]{
+    color:#2F5233 !important;
+    font-weight:700 !important;
+    font-size:15px !important;
+}
+
+/* Metric value */
+div[data-testid="stMetricValue"]{
+    color:#1D3620 !important;
+    font-weight:800 !important;
+    font-size:40px !important;
+}
+
+/* Delta text */
+div[data-testid="stMetricDelta"]{
+    color:#2E8B57 !important;
+    font-weight:700 !important;
+}
+
+</style>
+""", unsafe_allow_html=True)
 
 CATEGORY_ORDER = ['18-25', '26-35', '36-50', '51-65', '65+']
 PALETTE = ['#2F5233', '#C97A2B', '#5C7A57', '#A8402F', '#8a9e73', '#e0c07a', '#4A5A46', '#b7896a']
