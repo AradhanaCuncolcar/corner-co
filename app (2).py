@@ -13,7 +13,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Professional UI styling
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
@@ -28,33 +27,37 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. DATA LOADING & ROBUST CLEANING (WITH FIXED LEFT MERGE & STRIPPING)
+# 2. DATA LOADING & ROBUST CLEANING (OPTIMIZED FOR GITHUB PATHS)
 # ==============================================================================
 @st.cache_data
 def load_and_prepare_data():
-    # Load raw datasets
-    sales = pd.read_csv("cornerco_sales.csv")
-    enquiries = pd.read_csv("cornerco_enquiries.csv")
+    # GITHUB DEPLOYMENT RULE: Keep files in your repository's root folder 
+    # and call them by their precise file names (case-sensitive!)
+    sales_file = "cornerco_sales (1).csv"
+    enquiries_file = "cornerco_enquiries.csv"
     
-    # CRITICAL FIX: Clean column names to prevent KeyErrors from trailing spaces
+    sales = pd.read_csv(sales_file)
+    enquiries = pd.read_csv(enquiries_file)
+    
+    # Clean column headers to protect against trailing whitespace KeyErrors
     sales.columns = sales.columns.str.strip()
     enquiries.columns = enquiries.columns.str.strip()
     
-    # Clean Sales Data
+    # Process Sales Data types
     sales['date'] = pd.to_datetime(sales['date'])
     sales['item_name'] = sales['item_name'].astype(str).str.lower().str.strip()
     sales['total_revenue'] = sales['quantity'] * sales['unit_price']
     
-    # Clean Enquiries Data
+    # Process Enquiries Data types
     enquiries['date'] = pd.to_datetime(enquiries['date'])
     
-    # Aggregate sales to a daily level first to avoid row duplication/data inflation
+    # Aggregate sales to a daily framework first to avoid data duplication
     daily_sales = sales.groupby('date').agg(
         daily_revenue=('total_revenue', 'sum'),
         daily_transactions=('receipt_id', 'nunique')
     ).reset_index()
     
-    # Left Merge matching the framework of the project notebook
+    # Execute precise daily Left Merge matching the project notebook configuration
     merged_daily = pd.merge(daily_sales, enquiries, on='date', how='left').fillna(0)
     
     return sales, enquiries, merged_daily
@@ -62,7 +65,7 @@ def load_and_prepare_data():
 try:
     df_sales, df_enquiries, df_merged = load_and_prepare_data()
 except Exception as e:
-    st.error(f"❌ Error loading data files. Please check file paths. Details: {e}")
+    st.error(f"❌ File Load Failure. Ensure your dataset filenames match exactly in your GitHub repository. Error details: {e}")
     st.stop()
 
 # ==============================================================================
@@ -71,7 +74,6 @@ except Exception as e:
 st.sidebar.title("📊 Strategic Controls")
 st.sidebar.markdown("Filter the business view globally.")
 
-# Date Range Filter
 min_date = df_sales['date'].min().to_pydatetime()
 max_date = df_sales['date'].max().to_pydatetime()
 start_date, end_date = st.sidebar.date_input(
@@ -82,14 +84,13 @@ start_date, end_date = st.sidebar.date_input(
 )
 start_dt, end_dt = pd.to_datetime(start_date), pd.to_datetime(end_date)
 
-# Demographic & Segment Filters
 all_ages = sorted(df_sales['customer_age_group'].dropna().unique())
 selected_ages = st.sidebar.multiselect("Customer Age Groups", options=all_ages, default=all_ages)
 
 max_dist = float(df_sales['customer_distance_km'].max())
 selected_distance = st.sidebar.slider("Customer Distance Radius (km)", 0.0, max_dist, (0.0, max_dist))
 
-# Apply Filters Dynamically
+# Dynamic multi-dimensional filtering cascades across your analytics layers
 filtered_sales = df_sales[
     (df_sales['date'] >= start_dt) & (df_sales['date'] <= end_dt) &
     (df_sales['customer_age_group'].isin(selected_ages)) &
@@ -101,21 +102,20 @@ filtered_daily = df_merged[
 ]
 
 # ==============================================================================
-# 4. DASHBOARD HEADER & EXECUTIVE RECOMMENDATION
+# 4. DASHBOARD HEADER & STRATEGIC RECOMMENDATION
 # ==============================================================================
 st.title("💼 Corner&Co. — Omnichannel Investment Strategy")
 st.markdown("### Evaluating Unmet Digital Demand Beyond the Cash Register")
 
-# Analytical insight box highlighting the Circular Logic Trap
 st.info(
-    "💡 **Consultant Recommendation:** **INVEST NOW.** While current online transactions sit near 0% [cite: 78] "
-    "due to an infrastructure block [cite: 11], out-of-store delivery requests [cite: 33] and online order attempts [cite: 33] represent a substantial "
-    "untapped market[cite: 14], particularly among high-value digital-ready cohorts traveling long distances."
+    "💡 **Consultant Recommendation:** **INVEST NOW.** While current online transactions sit near 0% "
+    "due to an infrastructure block, out-of-store delivery requests and online order attempts represent a substantial "
+    "untapped market, particularly among high-value digital-ready cohorts traveling long distances."
 )
 st.markdown("---")
 
 # ==============================================================================
-# 5. HIGH-LEVEL KPI METRICS
+# 5. EXECUTION KPI SUMMARY CARDS
 # ==============================================================================
 col1, col2, col3, col4 = st.columns(4)
 with col1:
@@ -130,15 +130,13 @@ with col4:
 st.markdown("---")
 
 # ==============================================================================
-# 6. CORE ANALYTICAL VISUALIZATIONS (TABS)
+# 6. SYSTEM TABS & INTERACTIVE PLOTLY VISUALIZATIONS
 # ==============================================================================
 tab1, tab2, tab3 = st.tabs(["📈 Unmet Demand & Operations", "👥 Customer Profiling", "📦 Inventory Performance"])
 
-# TAB 1: OPERATIONAL FRICTION AND DEMAND SIGNALS
 with tab1:
     st.subheader("The Demand vs. Infrastructure Gap")
     
-    # Chart 1: Daily Trend of Missed Opportunities
     fig_demand = go.Figure()
     fig_demand.add_trace(go.Scatter(x=filtered_daily['date'], y=filtered_daily['delivery_requests'],
                                     mode='lines', name='Delivery Requests', line=dict(color='#1f77b4', width=2)))
@@ -172,7 +170,6 @@ with tab1:
         fig_walk.update_layout(template="plotly_white")
         st.plotly_chart(fig_walk, use_container_width=True)
 
-# TAB 2: DEMOGRAPHIC & LOGISTICAL SEGMENTATION
 with tab2:
     st.subheader("Target Audience Readiness Profile")
     c3, c4 = st.columns(2)
@@ -191,7 +188,6 @@ with tab2:
         fig_dist.update_layout(template="plotly_white", yaxis_title="Transaction Frequency")
         st.plotly_chart(fig_dist, use_container_width=True)
 
-# TAB 3: CLEANED PRODUCT PERFORMANCE (WITH LOCAL CONTROL)
 with tab3:
     st.subheader("Product Catalogue Analytics")
     
@@ -219,9 +215,9 @@ with tab3:
     st.plotly_chart(fig_prod, use_container_width=True)
 
 # ==============================================================================
-# 7. DATA AUDIT PREVIEW LOG
+# 7. SYSTEM LEDGER VERIFICATION LOG
 # ==============================================================================
 st.markdown("---")
 with st.expander("🔎 System Raw Data Integrity Log (Audit Check)"):
-    st.write("Previewing filtered ledger transactions directly feeding the workspace visuals:")
+    st.write("Previewing live system logs feeding active workspace rendering structures:")
     st.dataframe(filtered_sales.head(50), use_container_width=True)
