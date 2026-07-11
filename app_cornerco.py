@@ -27,17 +27,16 @@ st.markdown("""
     }
     </style>
     """, unsafe_allow_html=True)
-
 # ==============================================================================
 # 2. DATA LOADING & ROBUST CLEANING
 # ==============================================================================
 @st.cache_data
 def load_and_prepare_data():
     # Load raw datasets
-    sales = pd.read_csv("cornerco_sales.csv")
+    sales = pd.read_csv("cornerco_sales (1).csv")
     enquiries = pd.read_csv("cornerco_enquiries.csv")
     
-    # Clean Sales Data
+    # Clean Sales Data: enforce standard dates and lowercase text formatting
     sales['date'] = pd.to_datetime(sales['date'])
     sales['item_name'] = sales['item_name'].astype(str).str.lower().str.strip()
     sales['total_revenue'] = sales['quantity'] * sales['unit_price']
@@ -45,14 +44,15 @@ def load_and_prepare_data():
     # Clean Enquiries Data
     enquiries['date'] = pd.to_datetime(enquiries['date'])
     
-    # Create Daily Aggregated Sales to safely merge with daily enquiries
+    # Correct Aggregation Phase: Roll transactions up to a safe, daily level first
     daily_sales = sales.groupby('date').agg(
         daily_revenue=('total_revenue', 'sum'),
         daily_transactions=('receipt_id', 'nunique')
     ).reset_index()
     
-    # Merge on date key
-    merged_daily = pd.merge(daily_sales, enquiries, on='date', how='outer').fillna(0)
+    # Aligned Merging Strategy: Perform a Left Merge as done in your notebook framework
+    # This anchors the daily metrics specifically to active sales operational dates
+    merged_daily = pd.merge(daily_sales, enquiries, on='date', how='left').fillna(0)
     
     return sales, enquiries, merged_daily
 
@@ -61,7 +61,7 @@ try:
 except Exception as e:
     st.error(f"❌ Error loading data files. Please check file paths. Details: {e}")
     st.stop()
-
+    
 # ==============================================================================
 # 3. GLOBAL FILTER SIDEBAR
 # ==============================================================================
