@@ -1,223 +1,204 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
+import numpy as np
 
-# ==============================================================================
-# 1. PAGE CONFIGURATION & STYLING
-# ==============================================================================
-st.set_page_config(
-    page_title="Corner&Co. Strategic Analytics",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# Set layout configurations
+st.set_page_config(page_title="Corner&Co — Strategic Digital Dashboard", layout="wide")
 
-st.markdown("""
-    <style>
-    .main { background-color: #f8f9fa; }
-    .metric-card {
-        background-color: #ffffff;
-        padding: 20px;
-        border-radius: 8px;
-        border: 1px solid #e9ecef;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# ==============================================================================
-# 2. DATA LOADING & ROBUST CLEANING (OPTIMIZED FOR GITHUB PATHS)
-# ==============================================================================
 @st.cache_data
-def load_and_prepare_data():
-    # GITHUB DEPLOYMENT RULE: Keep files in your repository's root folder 
-    # and call them by their precise file names (case-sensitive!)
-    sales_file = "cornerco_sales (1).csv"
-    enquiries_file = "cornerco_enquiries.csv"
+def load_and_clean_data():
+    # 1. Load Datasets
+    sales = pd.read_csv("cornerco_sales.csv")
+    enquiries = pd.read_csv("cornerco_enquiries.csv")
     
-    sales = pd.read_csv(sales_file)
-    enquiries = pd.read_csv(enquiries_file)
+    # 2. String Stripping
+    for col in sales.select_dtypes(include=['object']).columns:
+        sales[col] = sales[col].str.strip()
+    for col in enquiries.select_dtypes(include=['object']).columns:
+        enquiries[col] = enquiries[col].str.strip()
+
+    # 3. Handle Junk Entries Case-Insensitively
+    junk_names = ['test', 'test item', 'xxx']
+    sales = sales[~sales['item_name'].str.lower().isin(junk_names)]
+
+    # 4. Remove Duplicates
+    sales = sales.drop_duplicates()
+
+    # 5. Standardize Product Names (Regex Mapping)
+    sales['item_name'] = sales['item_name'].replace({
+        r'(?i)^(bread|white bread)$': 'White Bread',
+        r'(?i)^(coke|coca-cola|coca cola)$': 'Coca Cola 500ml'
+    }, regex=True)
+
+    # 6. Impute Missing Unit Prices using Known Item Mappings
+    price_map = sales.dropna(subset=['unit_price']).set_index('item_name')['unit_price'].to_dict()
+    sales['unit_price'] = sales['unit_price'].fillna(sales['item_name'].map(price_map))
     
-    # Clean column headers to protect against trailing whitespace KeyErrors
-    sales.columns = sales.columns.str.strip()
-    enquiries.columns = enquiries.columns.str.strip()
+    # 7. Segment Bulk vs Retail Outliers (Quantity >= 40)
+    sales['customer_segment'] = sales['quantity'].apply(lambda x: 'Bulk' if x >= 40 else 'Retail')
+
+    # 8. Standardize Timelines & Merge Datasets
+    sales['date'] = pd.to_datetime(sales['date'], format='%d-%m-%Y')
+    enquiries['date'] = pd.to_datetime(enquiries['date'], format='%d-%m-%Y')
+
+    all_days = pd.date_range(start=enquiries['date'].min(), end=enquiries['date'].max(), freq='D')
+    timeline_df = pd.DataFrame({'date': all_days})
+
+    complete_enquiries = pd.merge(timeline_df, enquiries, on='date', how='left')
+    merged = pd.merge(sales, complete_enquiries, on='date', how='right')
+    merged = merged.sort_values(by='date').reset_index(drop=True)
+
+    # 9. Handle Zero-Transaction Imputations
+    fill_values = {
+        'receipt_id': 'NO_SALE', 'bill_id': 'NO_SALE', 'hour': -1,
+        'item_name': 'No Transactions Recorded', 'category': 'None',
+        'quantity': 0, 'unit_price': 0.0, 'payment_method': 'N/A',
+        'cashier': 'N/A', 'customer_age_group': 'N/A',
+        'customer_distance_km': 0.0, 'loyalty_member': 'N/A', 'customer_segment': 'N/A'
+    }
+    merged = merged.fillna(value=fill_values)
+
+    # 10. Intelligent Channel Logic for Empty Days
+    def determine_channel(row):
+        if row['receipt_id'] != 'NO_SALE':
+            return row['channel']
+        if row['online_orders_attempted'] > 0 or row['delivery_requests'] > 0:
+            return 'Online'
+        if row['foot_traffic_est'] > 0:
+            return 'In-store'
+        return 'N/A'
+
+    merged['channel'] = merged.apply(determine_channel, axis=1)
     
-    # Process Sales Data types
-    sales['date'] = pd.to_datetime(sales['date'])
-    sales['item_name'] = sales['item_name'].astype(str).str.lower().str.strip()
-    sales['total_revenue'] = sales['quantity'] * sales['unit_price']
+    # Calculate revenue per line items
+    merged['total_revenue'] = merged['quantity'] * merged['unit_price']
     
-    # Process Enquiries Data types
-    enquiries['date'] = pd.to_datetime(enquiries['date'])
+    return merged
+
+# Load fully clean pipelines
+df = load_and_clean_data()
+
+# ---------------------------------------------------------------
+# Dashboard Heading
+# ---------------------------------------------------------------
+st.title("🏬 Corner&Co — Executive Strategy & Digital Readiness Dashboard")
+st.markdown("This dashboard leverages fully unified transaction ledgers and localized custom metrics to assess online expansions.")
+
+# ---------------------------------------------------------------
+# Sidebar Strategy Filters
+# ---------------------------------------------------------------
+st.sidebar.header("Strategic Control Panels")
+
+# Outlier Filter
+segment_filter = st.sidebar.multiselect("Customer Segment", ["Retail", "Bulk"], default=["Retail", "Bulk"])
+filtered_df = df[df['customer_segment'].isin(segment_filter) | (df['receipt_id'] == 'NO_SALE')]
+
+# Channel Filter
+channels = sorted([c for c in filtered_df["channel"].unique() if c != 'N/A'])
+chosen_channels = st.sidebar.multiselect("Active Sales Channels", channels, default=channels)
+view_df = filtered_df[filtered_df["channel"].isin(chosen_channels) | (filtered_df['receipt_id'] == 'NO_SALE')]
+
+# ---------------------------------------------------------------
+# SECTION 1: Strategic Financial KPIs & Baseline Splits
+# ---------------------------------------------------------------
+st.subheader("📊 Performance Baseline & Revenue Metrics")
+
+c1, c2, c3, c4 = st.columns(4)
+actual_sales_rows = view_df[view_df['receipt_id'] != 'NO_SALE']
+
+total_rev = actual_sales_rows['total_revenue'].sum()
+total_tx = actual_sales_rows['receipt_id'].nunique()
+online_tx = actual_sales_rows[actual_sales_rows['channel'] == 'Online']['receipt_id'].nunique()
+distinct_items = actual_sales_rows['item_name'].nunique()
+
+c1.metric("Validated Gross Revenue", f"${total_rev:,.2f}")
+c2.metric("Total Order Count", f"{total_tx:,}")
+c3.metric("Current Online Conversions", f"{online_tx:,}")
+c4.metric("Active Catalog SKUs", f"{distinct_items:,}")
+
+st.write("")
+left, right = st.columns(2)
+
+with left:
+    st.markdown("### **Revenue Contribution Split**")
+    pay_splits = actual_sales_rows.groupby('payment_method')['total_revenue'].sum().reset_index()
+    st.bar_chart(data=pay_splits, x='payment_method', y='total_revenue', color='#1F77B4')
+
+with right:
+    st.markdown("### **Top 10 Inventory Items By Sales Volume**")
+    top_items = actual_sales_rows.groupby('item_name')['quantity'].sum().sort_values(ascending=False).head(10)
+    st.bar_chart(top_items)
+
+st.divider()
+
+# ---------------------------------------------------------------
+# SECTION 2: Customer Profiling & Behavioral Metrics
+# ---------------------------------------------------------------
+st.subheader("👥 Demographics & Customer Digital Readiness")
+l_profile, r_profile = st.columns(2)
+
+with l_profile:
+    st.markdown("### **Age Distribution Patterns**")
+    age_dist = actual_sales_rows.groupby('customer_age_group')['receipt_id'].count().reset_index()
+    st.bar_chart(data=age_dist, x='customer_age_group', y='receipt_id')
+
+with r_profile:
+    st.markdown("### **Distance vs. Channel Adaptability**")
+    # Median Distance calculation
+    median_dist = actual_sales_rows['customer_distance_km'].median()
+    far_pct = (actual_sales_rows[actual_sales_rows['customer_distance_km'] > 3.0]['receipt_id'].nunique() / max(total_tx, 1)) * 100
     
-    # Aggregate sales to a daily framework first to avoid data duplication
-    daily_sales = sales.groupby('date').agg(
-        daily_revenue=('total_revenue', 'sum'),
-        daily_transactions=('receipt_id', 'nunique')
-    ).reset_index()
-    
-    # Execute precise daily Left Merge matching the project notebook configuration
-    merged_daily = pd.merge(daily_sales, enquiries, on='date', how='left').fillna(0)
-    
-    return sales, enquiries, merged_daily
+    st.metric("Median Commute Distance", f"{median_dist:.1f} km")
+    st.metric("Customers Located > 3km Away", f"{far_pct:.2f}%")
+    st.caption("A large radius segment (>3km) indicates substantial structural friction that can be alleviated with a delivery application.")
 
-try:
-    df_sales, df_enquiries, df_merged = load_and_prepare_data()
-except Exception as e:
-    st.error(f"❌ File Load Failure. Ensure your dataset filenames match exactly in your GitHub repository. Error details: {e}")
-    st.stop()
+st.divider()
 
-# ==============================================================================
-# 3. GLOBAL FILTER SIDEBAR
-# ==============================================================================
-st.sidebar.title("📊 Strategic Controls")
-st.sidebar.markdown("Filter the business view globally.")
+# ---------------------------------------------------------------
+# SECTION 3: Unmet Digital Demand & Operational Congestion
+# ---------------------------------------------------------------
+st.subheader("📨 Unmet Digital Demand Signals vs. Queue Congestion")
+st.caption("Quantifying the physical storefront friction and traffic leakage that the till registers failed to log.")
 
-min_date = df_sales['date'].min().to_pydatetime()
-max_date = df_sales['date'].max().to_pydatetime()
-start_date, end_date = st.sidebar.date_input(
-    "Select Date Range",
-    value=(min_date, max_date),
-    min_value=min_date,
-    max_value=max_date
-)
-start_dt, end_dt = pd.to_datetime(start_date), pd.to_datetime(end_date)
+d1, d2, d3 = st.columns(3)
+# Grouped metrics on unique date arrays
+daily_metrics = view_df.groupby('date').first().reset_index()
+total_delivery = daily_metrics['delivery_requests'].sum()
+total_attempts = daily_metrics['online_orders_attempted'].sum()
+total_walkaways = daily_metrics['customers_turned_away_peak'].sum()
 
-all_ages = sorted(df_sales['customer_age_group'].dropna().unique())
-selected_ages = st.sidebar.multiselect("Customer Age Groups", options=all_ages, default=all_ages)
+d1.metric("Missed Delivery Inquiries", f"{total_delivery:,}")
+d2.metric("Failed Online Checkouts", f"{total_attempts:,}")
+d3.metric("Peak Walk-aways (Store Congestion)", f"{total_walkaways:,}")
 
-max_dist = float(df_sales['customer_distance_km'].max())
-selected_distance = st.sidebar.slider("Customer Distance Radius (km)", 0.0, max_dist, (0.0, max_dist))
+st.markdown("### **Timeline Profile of Digital Intent Signs**")
+timeline_charts = daily_metrics.set_index('date')[['delivery_requests', 'online_orders_attempted']]
+st.line_chart(timeline_charts)
 
-# Dynamic multi-dimensional filtering cascades across your analytics layers
-filtered_sales = df_sales[
-    (df_sales['date'] >= start_dt) & (df_sales['date'] <= end_dt) &
-    (df_sales['customer_age_group'].isin(selected_ages)) &
-    (df_sales['customer_distance_km'].between(selected_distance[0], selected_distance[1]))
-]
+# ---------------------------------------------------------------
+# SECTION 4: Final Strategic Business Verdict
+# ---------------------------------------------------------------
+st.divider()
+st.subheader("📢 Executive Strategic Decision Brief")
 
-filtered_daily = df_merged[
-    (df_merged['date'] >= start_dt) & (df_merged['date'] <= end_dt)
-]
+# Core decision intelligence values logic
+total_est_foot_traffic = daily_metrics['foot_traffic_est'].sum()
+unmet_pct = (total_delivery / max(total_est_foot_traffic, 1)) * 100
 
-# ==============================================================================
-# 4. DASHBOARD HEADER & STRATEGIC RECOMMENDATION
-# ==============================================================================
-st.title("💼 Corner&Co. — Omnichannel Investment Strategy")
-st.markdown("### Evaluating Unmet Digital Demand Beyond the Cash Register")
+st.info(f"💡 **Key Discovery Insight:** Approximately **{unmet_pct:.2f}%** of standard physical traffic explicitly requested delivery frameworks. Additionally, **{total_attempts:,}** digital checkouts failed due to the lack of infrastructure.")
 
-st.info(
-    "💡 **Consultant Recommendation:** **INVEST NOW.** While current online transactions sit near 0% "
-    "due to an infrastructure block, out-of-store delivery requests and online order attempts represent a substantial "
-    "untapped market, particularly among high-value digital-ready cohorts traveling long distances."
-)
-st.markdown("---")
+# Clear Decision Metrics Card
+if unmet_pct >= 5.0 or total_attempts > 5000:
+    st.success("🟢 **STRATEGIC INVESTMENT VERDICT: GO ONLINE IMMEDIATELY**\n\n"
+               "**Business Justification Summary:**\n"
+               "* **Massive Unmet Market:** The scale of explicit missed orders (~25k delivery inquiries) eclipses current in-store volume, showing that the physical till is experiencing severe leakage.\n"
+               "* **Friction Alleviation:** Over 10,000 customers walked away during peak hours (14:00 - 17:00). An order-ahead application directly prevents this lost revenue.\n"
+               "* **Low Digital Risk:** Tech-ready demographic targets (ages 18-50) represent more than 50% of your structural distribution base.")
+else:
+    st.warning("🟡 **STRATEGIC INVESTMENT VERDICT: MAINTAIN LOCAL BRICK & MORTAR FOCUS**\n\n"
+               "Digital indicators show narrow addressable demand margins. Focus on optimizing structural inside-store margins.")
 
-# ==============================================================================
-# 5. EXECUTION KPI SUMMARY CARDS
-# ==============================================================================
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.metric(label="Captured Revenue", value=f"${filtered_sales['total_revenue'].sum():,.2f}")
-with col2:
-    st.metric(label="Explicit Delivery Requests", value=f"{int(filtered_daily['delivery_requests'].sum()):,}")
-with col3:
-    st.metric(label="Blocked Online Order Attempts", value=f"{int(filtered_daily['online_orders_attempted'].sum()):,}")
-with col4:
-    st.metric(label="Peak Friction Walkouts", value=f"{int(filtered_daily['customers_turned_away_peak'].sum()):,}")
-
-st.markdown("---")
-
-# ==============================================================================
-# 6. SYSTEM TABS & INTERACTIVE PLOTLY VISUALIZATIONS
-# ==============================================================================
-tab1, tab2, tab3 = st.tabs(["📈 Unmet Demand & Operations", "👥 Customer Profiling", "📦 Inventory Performance"])
-
-with tab1:
-    st.subheader("The Demand vs. Infrastructure Gap")
-    
-    fig_demand = go.Figure()
-    fig_demand.add_trace(go.Scatter(x=filtered_daily['date'], y=filtered_daily['delivery_requests'],
-                                    mode='lines', name='Delivery Requests', line=dict(color='#1f77b4', width=2)))
-    fig_demand.add_trace(go.Scatter(x=filtered_daily['date'], y=filtered_daily['online_orders_attempted'],
-                                    mode='lines', name='Attempted Web Orders', line=dict(color='#ff7f0e', width=2)))
-    fig_demand.update_layout(
-        title="Daily Unmet Digital Demand Trends",
-        xaxis_title="Timeline",
-        yaxis_title="Count of Customer Signals",
-        hovermode="x unified",
-        template="plotly_white"
-    )
-    st.plotly_chart(fig_demand, use_container_width=True)
-    
-    st.subheader("Store Front Bottlenecks")
-    c1, c2 = st.columns(2)
-    with c1:
-        hourly_tx = filtered_sales.groupby('hour')['receipt_id'].nunique().reset_index()
-        fig_hours = px.bar(hourly_tx, x='hour', y='receipt_id', 
-                           title="Transaction Volume by Hour of Day",
-                           labels={'hour': 'Hour (24h format)', 'receipt_id': 'Number of Sales'},
-                           color_discrete_sequence=['#2ca02c'])
-        fig_hours.update_layout(template="plotly_white")
-        st.plotly_chart(fig_hours, use_container_width=True)
-        
-    with c2:
-        fig_walk = px.box(filtered_daily, y='customers_turned_away_peak', 
-                          title="Daily Customer Loss Distribution During Peaks",
-                          labels={'customers_turned_away_peak': 'Customers Left Due to Queues'},
-                          color_discrete_sequence=['#d62728'])
-        fig_walk.update_layout(template="plotly_white")
-        st.plotly_chart(fig_walk, use_container_width=True)
-
-with tab2:
-    st.subheader("Target Audience Readiness Profile")
-    c3, c4 = st.columns(2)
-    with c3:
-        age_mix = filtered_sales.groupby('customer_age_group')['receipt_id'].nunique().reset_index()
-        fig_age = px.pie(age_mix, values='receipt_id', names='customer_age_group', 
-                         title="Customer Base Age Group Allocation", hole=0.4,
-                         color_discrete_sequence=px.colors.qualitative.Pastel)
-        st.plotly_chart(fig_age, use_container_width=True)
-        
-    with c4:
-        fig_dist = px.histogram(filtered_sales, x='customer_distance_km', nbins=20,
-                                title="Customer Traveling Distance Distribution",
-                                labels={'customer_distance_km': 'Distance to Store (km)'},
-                                color_discrete_sequence=['#9467bd'])
-        fig_dist.update_layout(template="plotly_white", yaxis_title="Transaction Frequency")
-        st.plotly_chart(fig_dist, use_container_width=True)
-
-with tab3:
-    st.subheader("Product Catalogue Analytics")
-    
-    rank_metric = st.radio("Rank Inventory By:", options=["Units Sold Volume", "Revenue Generated"], horizontal=True)
-    
-    product_performance = filtered_sales.groupby('item_name').agg(
-        units_sold=('quantity', 'sum'),
-        revenue=('total_revenue', 'sum')
-    ).reset_index()
-    
-    if rank_metric == "Units Sold Volume":
-        top_products = product_performance.sort_values(by='units_sold', ascending=False).head(10)
-        fig_prod = px.bar(top_products, x='units_sold', y='item_name', orientation='h',
-                          title="Top 10 Products by True Volume Sold",
-                          labels={'units_sold': 'Units Sold', 'item_name': 'Cleaned Item Name'},
-                          color='units_sold', color_continuous_scale='Blues')
-    else:
-        top_products = product_performance.sort_values(by='revenue', ascending=False).head(10)
-        fig_prod = px.bar(top_products, x='revenue', y='item_name', orientation='h',
-                          title="Top 10 Products by Total Revenue Generation",
-                          labels={'revenue': 'Total Revenue ($)', 'item_name': 'Cleaned Item Name'},
-                          color='revenue', color_continuous_scale='Greens')
-        
-    fig_prod.update_layout(yaxis={'categoryorder':'total ascending'}, template="plotly_white")
-    st.plotly_chart(fig_prod, use_container_width=True)
-
-# ==============================================================================
-# 7. SYSTEM LEDGER VERIFICATION LOG
-# ==============================================================================
-st.markdown("---")
-with st.expander("🔎 System Raw Data Integrity Log (Audit Check)"):
-    st.write("Previewing live system logs feeding active workspace rendering structures:")
-    st.dataframe(filtered_sales.head(50), use_container_width=True)
+# Data Viewers
+st.divider()
+st.subheader("🔍 Production Standard Data Viewers")
+st.write("Merged and Fully Cleaned Pipeline Stream Engine", view_df.head(100))
